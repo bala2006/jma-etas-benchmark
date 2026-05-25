@@ -1,0 +1,6 @@
+Mc_max_curvature=0.6
+Mc_conservative=0.8
+bin_width=0.1
+offset=0.2
+events_before=10495
+events_after=5608

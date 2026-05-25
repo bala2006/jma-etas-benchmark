@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.Rhistory
+.RData
+.Rproj.user/
+
+# Raw input data (too large, must be downloaded separately)
+data/raw/*.csv
+data/raw/jma_downloads/
+
+# Keep processed data, outputs, and figures as demo results
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/outputs/.gitkeep
+!figures/.gitkeep

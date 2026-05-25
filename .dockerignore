@@ -1,0 +1,11 @@
+.git
+__pycache__/
+*.py[cod]
+.venv/
+.Rhistory
+.RData
+data/raw/*.csv
+data/processed/*.csv
+data/outputs/*
+figures/*.png
+figures/*.pdf

@@ -1,0 +1,8 @@
+services:
+  jma-etas-benchmark:
+    build: .
+    image: jma-etas-benchmark:latest
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: bash run_pipeline.sh

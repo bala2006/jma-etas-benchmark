@@ -1,0 +1,12 @@
+input_events_before_filter=4682
+input_events_fit=369
+fit_start=2010-01-01
+fit_end=2023-12-31
+min_mag=4
+max_events=0
+no_itr=11
+seed=1
+max_attempts=2
+verbose=FALSE
+fit_input=/workspace/data/outputs/etas_fit_input.csv
+note=R_fit_convergence_issues_using_initial_params
