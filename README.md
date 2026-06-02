@@ -300,7 +300,7 @@ Place it at: `data/raw/jma_tohoku_2010_2023.csv`
 ```bibtex
 @misc{jma-etas-benchmark,
   title = {JMA ETAS Benchmark: Reproducible 72-hour Earthquake Forecasting},
-  author = {DPRI Kyoto University},
+  author = {Bala Chandra Sekhar Reddy Moole},
   year = {2026},
   note = {Preparatory work for MEXT graduate research}
 }
