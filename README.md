@@ -5,6 +5,21 @@ Reproducible **72-hour probabilistic earthquake forecasting** for the offshore T
 Built with the [JMA Unified Hypocenter Catalog](https://www.data.jma.go.jp/svd/eqev/data/bulletin/hypo_e.html) (2010–2023).
 
 ---
+## Roadmap
+
+### v0.2
+- Rolling-window temporal validation
+- Multi-window forecast evaluation
+
+### v0.3
+- Neural forecasting baseline comparisons
+
+### v0.4
+- Interactive forecast visualization dashboard
+
+### v0.5
+- Multi-region earthquake forecasting benchmarks
+---
 
 ## What is ETAS? (Simple explanation)
 
@@ -314,6 +329,19 @@ Also cite the data source:
 
 ---
 
-## Research context
+## Related Documentation
 
-This project is preparatory work for **MEXT graduate research at Kyoto University Disaster Prevention Research Institute (DPRI)**. The goal is to demonstrate reproducible statistical seismology practice before extending to strict temporal validation and machine learning comparisons.
+- `METHODS.md` — Detailed methodology and implementation notes
+- `CONTRIBUTING.md` — Contribution guidelines
+- `LICENSE` — MIT License
+- GitHub Issues — Planned improvements and future work
+
+---
+
+## Research Context
+
+This repository provides a reproducible benchmark for ETAS-based earthquake forecasting using publicly available seismic catalogs.
+
+The project focuses on transparent methodology, reproducible validation, and comparative evaluation of forecasting approaches. Future work includes temporal backtesting, neural forecasting baselines, and multi-region benchmarking.
+
+This work also serves as preparatory research for prospective graduate studies in statistical seismology and earthquake forecasting.
