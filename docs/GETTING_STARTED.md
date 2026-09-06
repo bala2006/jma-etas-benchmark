@@ -66,9 +66,10 @@ python3 src/calibrate_etas.py
 python3 src/07_simple_forecast.py
 python3 src/05_visualize.py
 python3 src/06_validate.py
+python3 src/08_rolling_backtest.py
 ```
 
-The shell script [`run_pipeline.sh`](../run_pipeline.sh) runs the same sequence with progress messages and fail-fast behavior (`set -euo pipefail`).
+The last command is a Python-only, training-safe rolling audit. It evaluates the historical-rate and uniform-rate baselines over non-overlapping windows without pretending to refit ETAS. The shell script [`run_pipeline.sh`](../run_pipeline.sh) runs all ten stages with progress messages and fail-fast behavior (`set -euo pipefail`).
 
 ## 4. Understand the processing stages
 
@@ -82,9 +83,11 @@ flowchart TD
     F -->|Python grid evaluator| G[Raw 72-hour probabilities]
     G -->|historical rate matching| H[Calibrated ETAS probabilities]
     D -->|smoothed spatial rate| I[Historical-rate probabilities]
-    G --> J[Validation + figures]
+    I --> J[Validation + figures]
     H --> J
-    I --> J
+    G --> J
+    D --> K[Rolling baseline audit]
+    K --> L[Per-window scores + aggregate report]
 ```
 
 ### What each stage means
@@ -97,7 +100,8 @@ flowchart TD
 6. **Calibrate:** rescales the total predicted rate to the historical catalog rate and writes a separate calibrated artifact. This is a documented benchmark correction, not prospective validation.
 7. **Baseline:** uses smoothed historical event density and no short-term triggering.
 8. **Visualize:** creates the forecast map with observed M4+ events.
-9. **Validate:** compares each available forecast with events in its own metadata-defined time window.
+9. **Validate:** compares each available example forecast with events in its own metadata-defined time window.
+10. **Rolling audit:** evaluates training-only historical and uniform spatial-rate baselines at 3-day origins from 2018-01-01 through 2023-12-28. The audit uses 60×60 cells with 61×61 coordinate edges and does not claim rolling ETAS skill.
 
 ## 5. Find the results
 
@@ -113,6 +117,10 @@ flowchart TD
 | Historical baseline | `data/outputs/simple_prob_72h.npy` | NumPy array |
 | Grid metadata | `data/outputs/*_grid_metadata.json` | JSON |
 | Skill scores | `data/outputs/validation_metrics.txt` | Key/value text |
+| Rolling per-window scores | `data/outputs/rolling_backtest_windows.csv` | CSV |
+| Rolling aggregate summary | `data/outputs/rolling_backtest_summary.json` | JSON |
+| Rolling reliability bins | `data/outputs/rolling_backtest_reliability.json` | JSON |
+| Rolling audit figure | `figures/rolling_backtest.png` | PNG |
 | Figures | `figures/*.png` | PNG |
 
 Always read a forecast's matching metadata JSON. It defines the latitude/longitude coordinates and the forecast start/end; the `.npy` array by itself does not.
@@ -138,7 +146,25 @@ Example:
 ETAS_NO_ITR=300 ETAS_SEED=7 bash run_pipeline.sh
 ```
 
-The region, grid spacing, and 72-hour horizon are currently constants in the Python and R scripts. If you change them, update all dependent scripts and metadata expectations together; central configuration is a planned simplification.
+Rolling-audit options are available as command-line flags or environment variables:
+
+| Option | Environment variable | Default | Purpose |
+|---|---|---:|---|
+| `--start` | `BACKTEST_START` | `2018-01-01 00:00:00` | First forecast origin |
+| `--end` | `BACKTEST_END` | catalog end minus horizon | Last forecast origin |
+| `--step-days` | `BACKTEST_STEP_DAYS` | `3` | Origin spacing; must be at least the horizon |
+| `--window-days` | `BACKTEST_WINDOW_DAYS` | `3` | Forecast horizon |
+| `--min-train-events` | `BACKTEST_MIN_TRAIN_EVENTS` | `365` | Minimum history before an origin |
+| `--sigma-deg` | `BACKTEST_SIGMA_DEG` | `0.4` | Historical-rate smoothing bandwidth |
+| `--max-windows` | `BACKTEST_MAX_WINDOWS` | `0` | Optional limit; `0` means all valid origins |
+
+For example, to run only the first 50 origins:
+
+```bash
+BACKTEST_MAX_WINDOWS=50 python3 src/08_rolling_backtest.py
+```
+
+The region, grid spacing, and default 72-hour horizon are still constants in the existing ETAS scripts. The rolling audit makes its cell-edge contract explicit so future refactors can share one configuration safely.
 
 ## 7. Reproducibility checklist
 
@@ -148,6 +174,7 @@ Before comparing two runs, record:
 - the values in `data/outputs/mc_estimate.txt`;
 - ETAS environment variables and R/package versions;
 - the forecast metadata JSON next to each grid;
-- the validation metrics and generated figures.
+- the validation metrics and generated figures;
+- the rolling-audit command/options and `rolling_backtest_summary.json`.
 
-A passing command is not enough evidence of scientific validity. For interpretation, read [`BENCHMARKS.md`](BENCHMARKS.md) and [`../METHODS.md`](../METHODS.md), especially the limitations around single-window validation, Mc, declustering, and post-hoc calibration.
+A passing command is not enough evidence of scientific validity. For interpretation, read [`BENCHMARKS.md`](BENCHMARKS.md), [`RESEARCH.md`](RESEARCH.md), and [`../METHODS.md`](../METHODS.md), especially the limitations around completeness, declustering, calibration, and the fact that rolling ETAS refitting is still pending.

@@ -62,14 +62,17 @@ flowchart TD
 
     subgraph REPORTING[Evaluation and communication]
         Q[05_visualize.py]
-        R[06_validate.py]
+        R[06_validate.py\nexample window]
+        T[08_rolling_backtest.py\ntraining-only origins]
         S[figures/*.png\ndata/outputs/validation_metrics.txt]
+        U[data/outputs/rolling_backtest_*.csv/json\nfigures/rolling_backtest.png]
         L --> Q --> S
         N --> Q
         P --> R
         L --> R
         N --> R
         R --> S
+        E --> T --> U
     end
 ```
 
@@ -86,7 +89,8 @@ Each stage has a simple contract: read a named artifact, perform one scientifica
 | Grid forecast | Parameters + mainshocks | Conditional intensity → Poisson probability | `.npy` grid + JSON metadata | Parameters or event catalog missing |
 | Calibration | Raw grid + filtered catalog | Historical-rate scaling | Calibrated grid + metadata | Invalid or zero predicted rate |
 | Baseline | Filtered catalog | Smoothed spatial histogram | Baseline grid + metadata | Catalog has no usable time span |
-| Validation | Forecast grids + metadata + catalog | Count events, score forecasts, plot diagnostics | Metrics and PNGs | Forecasts have incompatible geometry/time |
+| Example validation | Forecast grids + metadata + catalog | Count events, score forecasts, plot diagnostics | Metrics and PNGs | Forecasts have incompatible geometry/time |
+| Rolling audit | Filtered catalog | Training-only, non-overlapping origins; 60×60 cells with 61×61 edges | Per-window CSV, aggregate JSON, reliability JSON, PNG | Invalid origins, insufficient training history, or overlapping configuration |
 
 ## Why Python and R are both present
 
@@ -151,13 +155,26 @@ For every probability grid, the matching JSON metadata records:
 
 This pairing is an important safety rule: a `.npy` array without its metadata cannot be interpreted correctly.
 
-## Operational boundary
+## Rolling audit contract
+
+`src/08_rolling_backtest.py` is intentionally Python-only. It does not reuse the full-history ETAS parameter file, because doing so would leak information from after each origin into the evaluation. Instead, it evaluates two transparent baselines:
+
+- `historical_rate`: a Gaussian-smoothed spatial event rate calculated from events at or before the origin;
+- `uniform_rate`: the same training-only total rate spread evenly across all cells.
+
+The default schedule has 730 non-overlapping origins spaced three days apart from 2018-01-01 through 2023-12-28. Each window scores events strictly after the origin and up to 72 hours later. The script reports both per-window rows and aggregate summaries, including count calibration, likelihood, information gain, AUC distribution, Brier score, and pooled reliability.
+
+This is a reliable baseline audit, not a claim that ETAS has been tested prospectively. The next ETAS milestone is to pass each origin as a precise training cutoff to the R fit, refit parameters using only prior data, and then score the resulting forecast with the same contract.
+
+## Research-to-implementation trace
+
+The design follows the external research summary in [`RESEARCH.md`](RESEARCH.md): controlled forecast origins, a strict train/test boundary, a fixed forecast definition, machine-readable forecast artifacts, transparent reference models, and aggregate results across many windows. The implementation deliberately records what it does not yet provide so users cannot mistake the baseline audit for an operational system.
 
 The current architecture is appropriate for an offline research benchmark. A real-world operational service would additionally need:
 
 1. automated, monitored catalog ingestion with duplicate and late-arriving-event handling;
 2. versioned configuration and data snapshots;
-3. prospective rolling-origin evaluation, not only retrospective demonstration;
+3. prospective rolling-origin ETAS evaluation with precise fit cutoffs (the current rolling audit covers simple baselines only);
 4. uncertainty intervals and calibration monitoring;
 5. reproducible packaging of exact Python/R/system dependencies;
 6. access control, audit logs, alert policy, and human review;

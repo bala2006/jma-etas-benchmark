@@ -18,6 +18,7 @@ This repository turns a JMA earthquake catalog into a spatial probability map, c
 | Run the pipeline from a fresh checkout | [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) |
 | See how data and scripts connect | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Interpret the existing charts and scores | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) |
+| Read the research basis and new findings | [`docs/RESEARCH.md`](docs/RESEARCH.md) |
 | Review the mathematical and scientific details | [`METHODS.md`](METHODS.md) |
 
 ## What problem does it solve?
@@ -31,7 +32,7 @@ It compares two useful perspectives:
 - **ETAS:** models background seismicity plus short-term triggering from previous events.
 - **Historical-rate baseline:** smooths the long-term spatial event density without modeling triggering.
 
-The forecast is a probability surface, not a deterministic prediction of the next earthquake.
+The forecast is a probability surface, not a deterministic prediction of the next earthquake. The checked-in ETAS comparison is a single-window demonstration; the new rolling audit measures only training-safe simple baselines until a full origin-by-origin ETAS refit is implemented.
 
 ## Project at a glance
 
@@ -45,6 +46,7 @@ The forecast is a probability surface, not a deterministic prediction of the nex
 | Forecast grid | 0.1° spacing; 61 × 61 grid coordinates |
 | ETAS fit | R `ETAS` package; Python evaluates the exported parameters on the grid |
 | Validation | Poisson log-likelihood, N-test, information gain, ROC/AUC, reliability diagram |
+| Rolling audit | 730 non-overlapping 72-hour origins from 2018-01-01 to 2023-12-28; training-only historical and uniform baselines |
 | Checked-in validation window | 2023-12-28 03:13:21 to 2023-12-31 03:13:21 UTC-like catalog timestamps |
 | Observations in that window | 5 events at or above Mc |
 
@@ -62,11 +64,14 @@ flowchart LR
     H --> I[Calibrated ETAS probabilities]
     C --> J[07 Historical-rate baseline]
     J --> K[Baseline probabilities]
+    C --> R[08 Rolling baseline audit]
+    R --> S[Multi-window baseline results]
     I --> L[05 Visualize]
-    G --> M[06 Validate]
+    G --> M[06 Validate example]
     I --> M
     K --> M
-    M --> N[Metrics, ROC, reliability, comparison plots]
+    M --> N[Single-window metrics and plots]
+    S --> N
 ```
 
 For a larger data-lineage diagram, artifact contract, and explanation of the Python/R boundary, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -83,9 +88,10 @@ For a larger data-lineage diagram, artifact contract, and explanation of the Pyt
 | 6 | `src/calibrate_etas.py` | Applies a documented rate-matching correction to the raw grid | calibrated grid and metadata |
 | 7 | `src/07_simple_forecast.py` | Builds a smoothed long-term spatial-rate baseline | `simple_prob_72h.npy`, baseline metadata |
 | 8 | `src/05_visualize.py` | Draws the ETAS forecast and observed events | `figures/forecast_map_72h.png` |
-| 9 | `src/06_validate.py` | Scores every available forecast against observations | metrics, ROC, reliability, comparison graphs |
+| 9 | `src/06_validate.py` | Scores the example forecasts against observations | single-window metrics and diagnostic graphs |
+| 10 | `src/08_rolling_backtest.py` | Scores training-only baselines over non-overlapping origins | rolling CSV/JSON results and audit graph |
 
-Run all nine stages in order with `bash run_pipeline.sh`. The scripts fail early when a required input is missing; the raw catalog is intentionally not committed to this repository.
+Run all ten stages in order with `bash run_pipeline.sh`. The scripts fail early when a required input is missing; the raw catalog is intentionally not committed to this repository.
 
 ## Benchmark snapshot
 
@@ -97,7 +103,18 @@ The checked-in artifacts are a **single-window demonstration**, not a statistica
 | ETAS (calibrated) | 3.29 | 5 | **PASS** | **-38.96** | 0.495 |
 | Historical-rate baseline | 3.01 | 5 | **PASS** | -40.91 | 0.500 |
 
-The calibration fixes the total-rate mismatch in this example, but it does **not** create spatial skill: all AUC values are close to random with only five observed events. A reliable research claim requires rolling-window backtesting over many forecast origins; that is an explicit next step rather than a result claimed by this repository.
+The calibration fixes the total-rate mismatch in this example, but it does **not** create spatial skill: all AUC values are close to random with only five observed events. The new rolling audit provides a more honest baseline reference without using future events:
+
+| Rolling model | Origins | Total expected | Total observed | Aggregate N-test | Window N-test pass rate | Mean AUC | Mean IG/event |
+|---|---:|---:|---:|:---:|---:|---:|---:|
+| Historical-rate baseline | 730 | 2,332.79 | 2,661 | **FAIL** | 94.9% | 0.515 | -0.0528 |
+| Uniform-rate baseline | 730 | 2,341.36 | 2,661 | **FAIL** | 94.9% | 0.500 | 0.0000 |
+
+The multi-window result shows that the smoothed spatial baseline had only a small average ranking advantage and negative information gain relative to the per-window uniform reference, while both baselines underpredicted the aggregate count. This is useful evidence for the next model iteration, not evidence that ETAS succeeds or fails: the rolling script intentionally does not refit ETAS at each origin.
+
+![Rolling-origin baseline audit](figures/rolling_backtest.png)
+
+The calibration fixes the total-rate mismatch in the single-window example, but it does **not** create spatial skill. A reliable ETAS research claim requires rolling-window refits with training-only data; that remains the next implementation stage.
 
 ### Visual results
 
@@ -115,7 +132,7 @@ Validation diagnostics:
 |---|---|---|
 | ![ROC curve](figures/validation_roc.png) | ![Reliability diagram](figures/validation_reliability.png) | ![Forecast comparison](figures/validation_forecast_vs_observed.png) |
 
-Detailed interpretation and a metric glossary are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+Detailed interpretation, the rolling findings, and a metric glossary are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). The research basis and design decisions are in [`docs/RESEARCH.md`](docs/RESEARCH.md).
 
 ## Quick start
 
@@ -168,11 +185,11 @@ Forecast grids are NumPy arrays; use the accompanying `*_metadata.json` file for
 
 This project is useful for learning, reproducibility, and controlled model comparison. It is not yet an operational forecasting service. Current limitations include:
 
-1. The checked-in evaluation has one 72-hour window and only five observed events.
+1. The ETAS comparison remains a single 72-hour window with only five observed events; the new rolling result currently covers simple baselines only.
 2. The Mc estimate is global for the region, although detection completeness can vary with location and time.
 3. Gardner–Knopoff is a simple deterministic declustering method; it does not quantify parentage uncertainty.
 4. The Python grid evaluator is a stable, documented fallback rather than a version-independent replacement for every R `ETAS` prediction API.
-5. Calibration matches a historical total rate after fitting; it is not a substitute for prospective calibration or rolling-origin training.
+5. Calibration matches a historical total rate after fitting; it is not a substitute for prospective calibration or rolling-origin ETAS training.
 6. The project does not provide uncertainty intervals, real-time ingestion, alert thresholds, or emergency decision support.
 
 See [`METHODS.md`](METHODS.md) for equations and assumptions, [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the evidence currently available, and the [JMA catalog documentation](https://www.data.jma.go.jp/svd/eqev/data/bulletin/hypo_e.html) for data provenance.
@@ -185,9 +202,10 @@ jma-etas-benchmark/
 ├── docs/
 │   ├── GETTING_STARTED.md            # Run guide and input/output contract
 │   ├── ARCHITECTURE.md               # Visual system and data-flow guide
-│   └── BENCHMARKS.md                 # Results, graphs, and metric glossary
+│   ├── BENCHMARKS.md                 # Single-window and rolling results
+│   └── RESEARCH.md                   # External research and design decisions
 ├── METHODS.md                        # Detailed methodology and limitations
-├── run_pipeline.sh                   # Nine-step orchestration script
+├── run_pipeline.sh                   # Ten-step orchestration script
 ├── src/                              # Python processing, forecasts, plots, validation
 ├── etas/                             # R ETAS fitting scripts
 ├── scripts/                          # Catalog preparation utilities
@@ -200,7 +218,8 @@ jma-etas-benchmark/
 
 ## Roadmap
 
-- Rolling-window temporal backtesting and multi-window forecast evaluation
+- Rolling baseline audit with explicit training-only origins **(implemented)**
+- Rolling ETAS refits with precise origin cutoffs **(next reliability milestone)**
 - Better spatial/temporal completeness analysis
 - Additional baselines and prospective calibration
 - Multi-region benchmark configuration

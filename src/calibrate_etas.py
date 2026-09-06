@@ -1,11 +1,10 @@
-"""Calibrate ETAS parameters to match the observed seismicity rate.
+"""Create the legacy rate-scaled ETAS comparison artifact.
 
-Reads the current ETAS forecast, computes the ratio of observed historical
-rate to predicted rate, and scales the background rate (mu) so the model
-predicts the correct total number of earthquakes.
-
-The spatial pattern from the original ETAS fit is preserved — only the
-overall rate is adjusted to pass the N-test.
+This script reads the example ETAS forecast, computes the full filtered
+catalog's historical rate, and scales the *entire forecast intensity* to that
+rate. The result is useful for illustrating rate mismatch, but it is not
+prospective calibration because the full catalog is used. The separate rolling
+baseline audit is the training-safe evaluation path.
 """
 
 from __future__ import annotations
@@ -50,7 +49,7 @@ def main() -> None:
     print(f"Observed daily rate: {daily_rate:.4f}")
     print(f"Expected events in 72h (from rate): {expected_72h:.2f}")
     print(f"Current ETAS predicted in 72h:       {total_predicted:.2f}")
-    print(f"Calibration factor (scale mu by):    {scale:.4f}")
+    print(f"Calibration factor (scale total intensity by): {scale:.4f}")
 
     # Read current params
     params_df = pd.read_csv(PARAMS)
@@ -80,7 +79,9 @@ def main() -> None:
     meta_calibrated = dict(meta)
     meta_calibrated["parameter_source"] = str(OUT_PARAMS.relative_to(ROOT))
     meta_calibrated["calibration"] = {
-        "method": "rate_matching",
+        "method": "legacy_full_catalog_rate_matching",
+        "applied_to": "entire_forecast_intensity",
+        "prospective": False,
         "catalog_events": total_events,
         "catalog_span_days": round(span_days, 1),
         "observed_daily_rate": round(daily_rate, 4),

@@ -129,7 +129,7 @@
   "t1": "2023-12-31T03:13:21",
   "grid_step_degrees": 0.1,
   "forecast_window_days": 3.0,
-  "parameter_source": "data\\outputs\\etas_parameters_calibrated.csv",
+  "parameter_source": "data/outputs/etas_parameters_calibrated.csv",
   "effective_parameters": {
     "mu": 0.59,
     "A": 0.2,
@@ -141,7 +141,9 @@
     "gamma": 1.04
   },
   "calibration": {
-    "method": "rate_matching",
+    "method": "legacy_full_catalog_rate_matching",
+    "applied_to": "entire_forecast_intensity",
+    "prospective": false,
     "catalog_events": 5608,
     "catalog_span_days": 5111.3,
     "observed_daily_rate": 1.0972,

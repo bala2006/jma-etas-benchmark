@@ -4,16 +4,16 @@ This page explains what the checked-in numbers mean, where they came from, and w
 
 ## Executive summary
 
-The repository includes one reproducible 72-hour retrospective comparison:
+The repository includes two complementary evaluations:
 
-- **Region:** 36–42°N, 140–146°E.
-- **Catalog:** JMA events from 2010–2023.
-- **Completeness threshold:** Mc = 0.8.
-- **Forecast window:** `2023-12-28 03:13:21` through `2023-12-31 03:13:21`.
-- **Observed events:** 5 events at or above Mc.
-- **Compared forecasts:** raw ETAS, rate-calibrated ETAS, and a smoothed historical-rate baseline.
+1. a **single-window retrospective ETAS demonstration** retained for the forecast map and model illustration; and
+2. a **730-origin rolling baseline audit** that uses only training data available at each origin and scores two simple reference models.
 
-The raw ETAS fit predicts 159.43 events in the 72-hour window, while the historical-rate calibration expects 3.29 and the baseline expects 3.01. The calibrated model therefore passes the example N-test while the raw model fails. However, the spatial AUC values are approximately 0.5, and five observations are not enough to support a strong claim of spatial forecasting skill.
+Both evaluations use the same broad scope: **region 36–42°N, 140–146°E; JMA events from 2010–2023; Mc = 0.8; and a 72-hour horizon**. The original ETAS window is `2023-12-28 03:13:21` through `2023-12-31 03:13:21` with 5 observed events at or above Mc. The rolling audit uses non-overlapping origins from `2018-01-01` through `2023-12-28`.
+
+The ETAS fit predicts 159.43 events in the original 72-hour window, while the historical-rate calibration expects 3.29 and the original baseline expects 3.01. The calibrated model therefore passes that example N-test while the raw model fails. However, the spatial AUC values are approximately 0.5, and five observations are not enough to support a strong ETAS performance claim.
+
+The new rolling audit is the more reliable result for the simple baselines: over 730 non-overlapping windows, the historical-rate baseline has mean AUC 0.515 and mean information gain/event -0.0528 versus the per-window uniform reference. Both baselines underpredict the aggregate count. This audit does **not** refit ETAS, so it is not a rolling ETAS result.
 
 ## Reproducing the report
 
@@ -26,9 +26,18 @@ bash run_pipeline.sh
 The report is generated from:
 
 - `data/outputs/validation_metrics.txt`
+- `data/outputs/rolling_backtest_windows.csv`
+- `data/outputs/rolling_backtest_summary.json`
+- `data/outputs/rolling_backtest_reliability.json`
 - `data/outputs/mc_estimate.txt`
 - `data/outputs/*_grid_metadata.json`
 - `figures/*.png`
+
+The rolling audit can also be run directly with:
+
+```bash
+python3 src/08_rolling_backtest.py
+```
 
 The generated files checked into the repository are a reference snapshot. If you use a different catalog, fit configuration, R package version, or iteration count, your values may differ.
 
@@ -89,14 +98,39 @@ The ROC curve describes ranking performance, not whether the probabilities are n
 
 This comparison is useful for a visual sanity check: it shows the spatial pattern assigned by each forecast alongside the observed event counts. It should not be read as proof that one map will generalize to future windows.
 
+## Rolling baseline audit
+
+The single-window ETAS table above remains useful as a reproducible illustration, but it is not enough for a reliability claim. `src/08_rolling_backtest.py` adds a stricter baseline experiment:
+
+- **730 origins** every three days from 2018-01-01 through 2023-12-28;
+- a **72-hour horizon** with no overlapping windows;
+- training events restricted to `datetime <= origin`;
+- scored events restricted to `origin < datetime <= origin + 72 hours`;
+- 60×60 forecast cells represented by 61×61 coordinate edges;
+- two baselines: smoothed historical rate and uniform rate;
+- per-window scores plus aggregate likelihood, N-test, AUC distribution, Brier score, and pooled reliability.
+
+| Rolling model | Origins | Total expected | Total observed | Aggregate N-test | Window N-test pass rate | Mean AUC | Mean IG/event |
+|---|---:|---:|---:|:---:|---:|---:|---:|
+| Historical-rate baseline | 730 | 2,332.79 | 2,661 | **FAIL** | 94.9% | 0.515 | -0.0528 |
+| Uniform-rate baseline | 730 | 2,341.36 | 2,661 | **FAIL** | 94.9% | 0.500 | ~0.0000 |
+
+![Rolling-origin baseline audit](../figures/rolling_backtest.png)
+
+The spatial baseline's average AUC is only slightly above random, its fifth-percentile AUC is 0.167, and its average information gain is negative relative to the per-window uniform reference. Both baselines underpredict the aggregate count. The useful research finding is therefore not that the historical map is operationally reliable; it is that a simple long-term spatial rate does not adequately capture this catalog's short-horizon variation.
+
+This output is intentionally **not** labeled a rolling ETAS result. The script does not refit R ETAS parameters at each origin, so it cannot establish prospective ETAS skill. See [`RESEARCH.md`](RESEARCH.md) for the design rationale and the next ETAS milestone.
+
 ## What the calibration does
 
 `src/calibrate_etas.py` uses the long-term filtered catalog rate to scale the raw forecast:
 
 ```text
 scale = historical_expected_72h / raw_predicted_72h
-calibrated_mu = raw_mu × scale
+calibrated_intensity = raw_intensity × scale
 ```
+
+The parameter CSV also writes a scaled `mu` for traceability, but the stored calibrated grid is produced by scaling the entire integrated intensity. It is explicitly marked as non-prospective in its metadata.
 
 For this snapshot:
 
@@ -115,42 +149,46 @@ This is useful for exposing the effect of rate mismatch and making a controlled 
 
 ### Supported conclusions
 
-- The pipeline is able to produce reproducible grid forecasts and machine-readable metadata.
-- The raw ETAS output is severely overdispersed in total count for this configured snapshot.
-- Rate matching changes the total-count behavior and makes this one N-test pass.
-- The simple historical baseline is a necessary reference; ETAS should not be considered useful unless it improves on such baselines over many windows.
+- The simple historical-rate baseline has been evaluated over 730 training-only, non-overlapping windows.
+- Long-term spatial smoothing alone has only modest average ranking skill and negative mean information gain versus the uniform reference in this snapshot.
+- Both simple baselines underpredict the aggregate event count, so total-rate behavior also needs improvement.
+- The raw ETAS output is severely overdispersed in the original single-window demonstration.
+- Rate matching changes the single-window total-count behavior and makes that example N-test pass.
+- ETAS should not be considered useful unless a true rolling ETAS evaluation improves on these baselines.
 
 ### Unsupported conclusions
 
 - That ETAS can reliably predict a specific earthquake.
 - That the calibrated model is operationally calibrated.
+- That the rolling baseline audit establishes ETAS performance; ETAS was not refit at each origin.
 - That an AUC near 0.5 proves ETAS has no value in general.
-- That one 72-hour window is a statistically adequate benchmark.
+- That the single-window result is a statistically adequate benchmark.
+- That the rolling result generalizes to another catalog, region, or magnitude threshold.
 - That the maps should be used for evacuation, public warning, or emergency response.
 
-## Recommended next evaluation
+## Next research milestone: rolling ETAS
 
-The most important scientific improvement is rolling-origin backtesting:
+The current code provides a valid rolling baseline schedule. The next step is a true rolling ETAS experiment:
 
 ```mermaid
 flowchart LR
     C[Historical catalog] --> T1[Train through t₁]
-    T1 --> F1[Forecast t₁ to t₁+72h]
-    F1 --> O1[Score observed events]
-    C --> T2[Train through t₂]
-    T2 --> F2[Forecast t₂ to t₂+72h]
-    F2 --> O2[Score observed events]
-    C --> TN[Repeat across many origins]
+    T1 --> F1[Fit ETAS using only t <= t₁]
+    F1 --> P1[Forecast t₁ to t₁+72h]
+    P1 --> O1[Score observed events]
+    C --> T2[Repeat at t₂]
+    T2 --> F2[Fit, forecast, and score]
+    C --> TN[Repeat across all origins]
     TN --> A[Aggregate skill, calibration, uncertainty]
 ```
 
 A stronger evaluation should:
 
 1. choose forecast origins before looking at future events;
-2. fit or update the model using only data available at each origin;
+2. fit or update ETAS using only data available at each origin;
 3. score many non-overlapping or clearly accounted-for windows;
 4. report uncertainty intervals across windows;
 5. compare ETAS with the historical baseline and simple count-rate models;
 6. monitor N-test, likelihood, calibration, and spatial discrimination separately.
 
-Rolling validation is listed in the project roadmap and is required before making real-world performance claims.
+The external research basis for these choices is summarized in [`RESEARCH.md`](RESEARCH.md), including links to CSEP, pyCSEP, the prospective California benchmark, and ETAS completeness research.
