@@ -1,314 +1,210 @@
-# jma-etas-benchmark
+# JMA ETAS Benchmark
 
-Reproducible **72-hour probabilistic earthquake forecasting** for the offshore Tohoku/Kanto region of Japan using the **ETAS (Epidemic-Type Aftershock Sequence)** model.
+**A transparent, reproducible 72-hour earthquake-forecasting benchmark for the offshore Tohoku/Kanto region of Japan.**
 
-Built with the [JMA Unified Hypocenter Catalog](https://www.data.jma.go.jp/svd/eqev/data/bulletin/hypo_e.html) (2010–2023).
+This repository turns a JMA earthquake catalog into a spatial probability map, compares an ETAS model with a historical-rate baseline, and records the assumptions and diagnostics needed to interpret the result.
 
----
-## Roadmap
+> **Important:** this is a research benchmark and reproducibility project, not an operational warning system. The checked-in result evaluates one retrospective 72-hour window. It must not be used alone for emergency decisions or public safety.
 
-### v0.2
-- Rolling-window temporal validation
-- Multi-window forecast evaluation
+[![Methods](https://img.shields.io/badge/methods-ETAS%20%2B%20historical%20baseline-4c78a8)](METHODS.md)
+[![Data](https://img.shields.io/badge/data-JMA%20Unified%20Hypocenter%20Catalog-59a14f)](https://www.data.jma.go.jp/svd/eqev/data/bulletin/hypo_e.html)
+[![License](https://img.shields.io/badge/license-MIT-2f855a)](LICENSE)
 
-### v0.3
-- Neural forecasting baseline comparisons
+## Start here
 
-### v0.4
-- Interactive forecast visualization dashboard
+| If you want to… | Read this |
+|---|---|
+| Understand the project in five minutes | This page |
+| Run the pipeline from a fresh checkout | [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) |
+| See how data and scripts connect | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| Interpret the existing charts and scores | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) |
+| Review the mathematical and scientific details | [`METHODS.md`](METHODS.md) |
 
-### v0.5
-- Multi-region earthquake forecasting benchmarks
----
+## What problem does it solve?
 
-## What is ETAS? (Simple explanation)
+Earthquakes cluster in time and space: a larger event can be followed by aftershocks, and some areas have a higher long-term rate than others. The project asks:
 
-Earthquakes trigger more earthquakes. When a big quake happens, it creates aftershocks. Those aftershocks can trigger their own aftershocks — like a chain reaction.
+> Given the catalog up to a forecast time, what is the probability of at least one earthquake in each 0.1° × 0.1° grid cell during the next 72 hours?
 
-**ETAS** is a statistical model that learns this triggering behavior from past data. It answers: *"For each 0.1° x 0.1° cell on the map, what is the probability of at least one earthquake in the next 72 hours?"*
+It compares two useful perspectives:
 
-The model has two components:
-- **Background rate** — spontaneous earthquakes that happen on their own
-- **Triggered rate** — aftershocks caused by previous earthquakes, which decay with time and distance
+- **ETAS:** models background seismicity plus short-term triggering from previous events.
+- **Historical-rate baseline:** smooths the long-term spatial event density without modeling triggering.
 
----
+The forecast is a probability surface, not a deterministic prediction of the next earthquake.
 
-## What this project does
+## Project at a glance
 
+| Item | Current benchmark configuration |
+|---|---|
+| Study region | 36–42°N, 140–146°E (offshore Tohoku/Kanto) |
+| Catalog period | 2010–2023 |
+| Catalog source | JMA Unified Hypocenter Catalog |
+| Completeness threshold | Mc = 0.8 (maximum curvature 0.6 + 0.2 conservative offset) |
+| Forecast horizon | 72 hours |
+| Forecast grid | 0.1° spacing; 61 × 61 grid coordinates |
+| ETAS fit | R `ETAS` package; Python evaluates the exported parameters on the grid |
+| Validation | Poisson log-likelihood, N-test, information gain, ROC/AUC, reliability diagram |
+| Checked-in validation window | 2023-12-28 03:13:21 to 2023-12-31 03:13:21 UTC-like catalog timestamps |
+| Observations in that window | 5 events at or above Mc |
+
+## Architecture in one picture
+
+```mermaid
+flowchart LR
+    A[JMA catalog CSV] --> B[01 Load and filter]
+    B --> C[02 Estimate Mc]
+    C --> D[03 Gardner–Knopoff declustering]
+    D --> E[R ETAS maximum-likelihood fit]
+    E --> F[04 Grid forecast]
+    F --> G[Raw ETAS probabilities]
+    G --> H[Calibrate total rate]
+    H --> I[Calibrated ETAS probabilities]
+    C --> J[07 Historical-rate baseline]
+    J --> K[Baseline probabilities]
+    I --> L[05 Visualize]
+    G --> M[06 Validate]
+    I --> M
+    K --> M
+    M --> N[Metrics, ROC, reliability, comparison plots]
 ```
-JMA earthquake catalog (2010-2023)
-        │
-        ▼
-  1. Filter region & time period
-        │
-        ▼
-  2. Estimate magnitude of completeness (Mc)
-        │
-        ▼
-  3. Decluster into mainshocks & aftershocks
-        │
-        ▼
-  4. Fit ETAS model parameters
-        │
-        ▼
-  5. Generate 72-hour probability forecast
-        │
-        ▼
-  6. Calibrate to match observed rate
-        │
-        ▼
-  7. Validate against actual earthquakes
-        │
-        ▼
-  Final output: forecast map + skill scores
-```
 
----
+For a larger data-lineage diagram, artifact contract, and explanation of the Python/R boundary, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## Pipeline steps and results
+## Pipeline steps
 
-### Step 1: Load and filter catalog
-Reads the raw JMA CSV, standardises columns, and keeps only events in the target region (36°N–42°N, 140°E–146°E) and period (2010–2023).
+| Step | Script | What it does | Main output |
+|---:|---|---|---|
+| 1 | `src/01_load_and_filter.py` | Standardizes the JMA CSV and applies time/region filters | `data/processed/catalog_region_2010_2023.csv` |
+| 2 | `src/02_estimate_mc.py` | Estimates magnitude of completeness and removes less-complete events | `catalog_mc_filtered.csv`, `mc_estimate.txt`, FMD graph |
+| 3 | `src/03_decluster.py` | Labels dependent events with Gardner–Knopoff windows | `mainshocks_gk.csv`, `aftershocks_gk.csv` |
+| 4 | `etas/fit_etas.R` | Fits eight ETAS parameters with the R `ETAS` package | `etas_parameters.csv`, `etas_fit.rds` |
+| 5 | `src/04_etas_forecast.py` | Evaluates the fitted intensity on the 0.1° grid | `forecast_prob_72h.npy`, grid metadata |
+| 6 | `src/calibrate_etas.py` | Applies a documented rate-matching correction to the raw grid | calibrated grid and metadata |
+| 7 | `src/07_simple_forecast.py` | Builds a smoothed long-term spatial-rate baseline | `simple_prob_72h.npy`, baseline metadata |
+| 8 | `src/05_visualize.py` | Draws the ETAS forecast and observed events | `figures/forecast_map_72h.png` |
+| 9 | `src/06_validate.py` | Scores every available forecast against observations | metrics, ROC, reliability, comparison graphs |
+
+Run all nine stages in order with `bash run_pipeline.sh`. The scripts fail early when a required input is missing; the raw catalog is intentionally not committed to this repository.
+
+## Benchmark snapshot
+
+The checked-in artifacts are a **single-window demonstration**, not a statistically sufficient long-term evaluation. The most important signal is the difference between raw and calibrated event counts:
+
+| Forecast | Expected events | Observed events | N-test | Log-likelihood | ROC AUC |
+|---|---:|---:|---|---:|---:|
+| ETAS (raw) | 159.43 | 5 | **FAIL** | -175.70 | 0.473 |
+| ETAS (calibrated) | 3.29 | 5 | **PASS** | **-38.96** | 0.495 |
+| Historical-rate baseline | 3.01 | 5 | **PASS** | -40.91 | 0.500 |
+
+The calibration fixes the total-rate mismatch in this example, but it does **not** create spatial skill: all AUC values are close to random with only five observed events. A reliable research claim requires rolling-window backtesting over many forecast origins; that is an explicit next step rather than a result claimed by this repository.
+
+### Visual results
+
+Magnitude completeness estimate:
+
+![Frequency–magnitude distribution and Mc threshold](figures/fmd_mc_estimate.png)
+
+Forecast map:
+
+![ETAS 72-hour probability forecast](figures/forecast_map_72h.png)
+
+Validation diagnostics:
+
+| ROC discrimination | Reliability | Forecast versus observations |
+|---|---|---|
+| ![ROC curve](figures/validation_roc.png) | ![Reliability diagram](figures/validation_reliability.png) | ![Forecast comparison](figures/validation_forecast_vs_observed.png) |
+
+Detailed interpretation and a metric glossary are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+
+## Quick start
+
+### Docker (recommended for the complete Python + R pipeline)
 
 ```bash
-python src/01_load_and_filter.py
-```
-**Result:** `data/processed/catalog_region_2010_2023.csv` — **10,495 events** filtered to the study region.
+# 1. Put the downloaded JMA CSV at:
+#    data/raw/jma_tohoku_2010_2023.csv
 
----
-
-### Step 2: Estimate magnitude of completeness (Mc)
-Finds the smallest magnitude above which all earthquakes are reliably detected using the maximum curvature method + 0.2 conservative offset.
-
-```bash
-python src/02_estimate_mc.py
-```
-**Result:** Mc = **0.8** (max curvature at 0.6). Events below Mc are discarded.
-
-```
-Mc_max_curvature=0.6
-Mc_conservative=0.8
-events_before=10495
-events_after=5608
-```
-
-![Frequency-magnitude distribution](figures/fmd_mc_estimate.png)
-
----
-
-### Step 3: Declustering (Gardner-Knopoff)
-Separates earthquakes into mainshocks (independent) and aftershocks (triggered) using magnitude-dependent time/distance windows.
-
-```bash
-python src/03_decluster.py
-```
-**Result:** **4,682 mainshocks** and **926 aftershocks** identified.
-
-| File | Description |
-|------|-------------|
-| `data/processed/mainshocks_gk.csv` | Declustered mainshock catalog |
-| `data/processed/aftershocks_gk.csv` | Flagged aftershocks |
-
----
-
-### Step 4: Fit ETAS model
-Fits the 8-parameter space-time ETAS model using maximum likelihood estimation (R `ETAS` package).
-
-```bash
-Rscript etas/fit_etas.R
-```
-
-| Parameter | Description | Fitted value |
-|-----------|-------------|-------------|
-| mu | Background rate (events/day/deg²) | 0.59 |
-| A | Productivity coefficient | 0.20 |
-| c | Omori time offset (days) | 0.023 |
-| alpha | Magnitude sensitivity | 1.50 |
-| p | Omori decay exponent | 1.11 |
-| D | Spatial scale (deg²) | 0.0012 |
-| q | Spatial decay exponent | 1.86 |
-| gamma | Magnitude-dependent spatial scaling | 1.04 |
-
-> **Note:** The CRAN `ETAS` R package may require additional iterations (`ETAS_NO_ITR=300`) for full convergence. The pipeline defaults to 11 iterations as a quick demo.
-
----
-
-### Step 5: Generate ETAS forecast
-Evaluates the fitted ETAS conditional intensity on a 61×61 grid (0.1° resolution) and converts expected counts to Poisson probabilities.
-
-```bash
-python src/04_etas_forecast.py
-```
-
-**Forecast window:** 2023-12-28 to 2023-12-31 (72 hours)
-
----
-
-### Step 6: Calibrate forecast
-Scales the background rate (mu) so the total expected earthquakes matches the long-term observed rate. This fixes the N-test (number test).
-
-```bash
-python src/calibrate_etas.py
-```
-
-| Metric | Raw ETAS | Calibrated ETAS |
-|--------|----------|----------------|
-| mu (background rate) | 0.5900 | **0.0122** |
-| Expected events (72h) | 159.43 | **3.29** |
-
----
-
-### Step 7: Simple historical rate baseline
-Creates a simple benchmark forecast using a Gaussian kernel density estimate of past earthquake locations. No temporal triggering — just smoothed historical seismicity.
-
-```bash
-python src/07_simple_forecast.py
-```
-
----
-
-### Step 8: Visualize forecast map
-Generates the final publication-quality probability map.
-
-```bash
-python src/05_visualize.py
-```
-
-![Forecast map](figures/forecast_map_72h.png)
-
----
-
-### Step 9: Validate all forecasts
-Compares each forecast against the 5 observed earthquakes in the 72-hour window and computes standard seismological skill scores.
-
-```bash
-python src/06_validate.py
-```
-
-#### Validation results
-
-| Metric | ETAS (raw) | ETAS (calibrated) | Simple baseline | What it means |
-|--------|:----------:|:-----------------:|:---------------:|--------------|
-| Expected events | 159.43 | **3.29** | 3.01 | Model-predicted count |
-| Observed events | 5 | 5 | 5 | What actually happened |
-| **N-test** | **FAIL** 🔴 | **PASS** 🟢 | **PASS** 🟢 | Correct total count? |
-| Log-likelihood | -175.70 | **-38.96** 🏆 | -40.91 | Higher = better fit |
-| ROC AUC | 0.473 | 0.495 | 0.500 | 0.5 = random, 1.0 = perfect |
-
-![ROC curve](figures/validation_roc.png)
-![Reliability diagram](figures/validation_reliability.png)
-![Forecast vs observed](figures/validation_forecast_vs_observed.png)
-
-#### Key takeaways
-- The **raw ETAS** overpredicts by 32× (not calibrated for this region)
-- The **calibrated ETAS** passes the N-test and has the best log-likelihood
-- The **simple baseline** also passes N-test but has lower log-likelihood
-- With only 5 events in the window, spatial skill (AUC) is near random for all models — a longer evaluation with many windows is needed
-
----
-
-## How to run
-
-### Option 1: Docker (recommended — easiest)
-
-```bash
-# 1. Get the data
-# Download from: https://www.data.jma.go.jp/svd/eqev/data/bulletin/hypo_e.html
-# Save as: data/raw/jma_tohoku_2010_2023.csv
-
-# 2. Run everything
+# 2. Build and run the complete pipeline
 docker compose build
 docker compose run --rm jma-etas-benchmark
+```
 
-# For a proper scientific ETAS fit (takes longer):
+For a longer ETAS optimization, increase the iteration count. The default is intentionally a quick reproducibility run:
+
+```bash
 docker compose run --rm -e ETAS_NO_ITR=300 jma-etas-benchmark
 ```
 
-### Option 2: Manual (Python + R)
+### Local Python + R
 
-**Requirements:**
-- Python 3.10+
-- R 4.2+ with the `ETAS` package
+Requirements are Python 3.10+, R 4.2+, and the R package `ETAS`:
 
 ```bash
-# Install Python packages
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# Install R package
 Rscript -e "install.packages('ETAS', repos='https://cloud.r-project.org')"
-
-# Run the full pipeline
 bash run_pipeline.sh
 ```
 
-### Option 3: Run individual steps
+The expected input columns and individual-step commands are documented in [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
 
-```bash
-# Pre-processing
-python src/01_load_and_filter.py
-python src/02_estimate_mc.py
-python src/03_decluster.py
+## How to read the outputs
 
-# ETAS fitting and forecasting
-Rscript etas/fit_etas.R
-python src/04_etas_forecast.py
+| Directory | Contents | Why it matters |
+|---|---|---|
+| `data/raw/` | User-provided JMA CSV; ignored by Git | Source data stays separate from derived artifacts |
+| `data/processed/` | Cleaned, Mc-filtered, and declustered catalogs | Auditable inputs to fitting and evaluation |
+| `data/outputs/` | Parameters, NumPy grids, metadata, and metrics | Machine-readable results and provenance |
+| `figures/` | PNG graphs generated by the pipeline | Human-readable diagnostics and communication |
+| `src/` | Python preprocessing, forecasting, validation, visualization | Main executable workflow |
+| `etas/` | R ETAS fit and optional compatibility wrapper | Model fitting boundary |
+| `scripts/` | Utilities for combining/converting local JMA files | Data preparation helpers |
 
-# Calibration and baseline
-python src/calibrate_etas.py
-python src/07_simple_forecast.py
+Forecast grids are NumPy arrays; use the accompanying `*_metadata.json` file for coordinates, time window, grid spacing, and effective parameters. Do not interpret an array without its metadata.
 
-# Visualization and validation
-python src/05_visualize.py
-python src/06_validate.py
-```
+## Scientific scope and limitations
 
----
+This project is useful for learning, reproducibility, and controlled model comparison. It is not yet an operational forecasting service. Current limitations include:
 
-## Project structure
+1. The checked-in evaluation has one 72-hour window and only five observed events.
+2. The Mc estimate is global for the region, although detection completeness can vary with location and time.
+3. Gardner–Knopoff is a simple deterministic declustering method; it does not quantify parentage uncertainty.
+4. The Python grid evaluator is a stable, documented fallback rather than a version-independent replacement for every R `ETAS` prediction API.
+5. Calibration matches a historical total rate after fitting; it is not a substitute for prospective calibration or rolling-origin training.
+6. The project does not provide uncertainty intervals, real-time ingestion, alert thresholds, or emergency decision support.
 
-```
+See [`METHODS.md`](METHODS.md) for equations and assumptions, [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the evidence currently available, and the [JMA catalog documentation](https://www.data.jma.go.jp/svd/eqev/data/bulletin/hypo_e.html) for data provenance.
+
+## Repository map
+
+```text
 jma-etas-benchmark/
-├── run_pipeline.sh          # Full pipeline script
-├── docker-compose.yml       # Docker configuration
-├── Dockerfile               # Container definition
-├── requirements.txt         # Python dependencies
-├── README.md                # This file
-├── METHODS.md               # Detailed methodology
-│
-├── src/                     # Python scripts
-│   ├── 01_load_and_filter.py
-│   ├── 02_estimate_mc.py
-│   ├── 03_decluster.py
-│   ├── 04_etas_forecast.py
-│   ├── 05_visualize.py
-│   ├── 06_validate.py
-│   ├── 07_simple_forecast.py
-│   └── calibrate_etas.py
-│
-├── etas/                    # R scripts
-│   ├── fit_etas.R
-│   └── generate_forecast.R
-│
+├── README.md                         # Project overview and navigation
+├── docs/
+│   ├── GETTING_STARTED.md            # Run guide and input/output contract
+│   ├── ARCHITECTURE.md               # Visual system and data-flow guide
+│   └── BENCHMARKS.md                 # Results, graphs, and metric glossary
+├── METHODS.md                        # Detailed methodology and limitations
+├── run_pipeline.sh                   # Nine-step orchestration script
+├── src/                              # Python processing, forecasts, plots, validation
+├── etas/                             # R ETAS fitting scripts
+├── scripts/                          # Catalog preparation utilities
 ├── data/
-│   ├── raw/                 # Raw JMA data (not committed)
-│   ├── processed/           # Cleaned catalogs
-│   └── outputs/             # Forecasts, parameters, metrics
-│
-├── figures/                 # Visualization outputs
-└── scripts/                 # Utility scripts
+│   ├── raw/                          # Place the JMA CSV here (not committed)
+│   ├── processed/                    # Derived catalogs
+│   └── outputs/                      # Forecast arrays, metadata, metrics
+└── figures/                          # Generated PNG diagnostics
 ```
 
----
+## Roadmap
 
-## Data
-
-The JMA Unified Hypocenter Catalog is available from the Japan Meteorological Agency:
-https://www.data.jma.go.jp/svd/eqev/data/bulletin/hypo_e.html
-
-Download the CSV with columns: `Date, Time, Latitude(°N), Longitude(°E), Depth(km), Mag`
-Place it at: `data/raw/jma_tohoku_2010_2023.csv`
-
----
+- Rolling-window temporal backtesting and multi-window forecast evaluation
+- Better spatial/temporal completeness analysis
+- Additional baselines and prospective calibration
+- Multi-region benchmark configuration
+- Interactive visualization for exploration (not for replacing scientific validation)
 
 ## Citation
 
@@ -322,26 +218,4 @@ Place it at: `data/raw/jma_tohoku_2010_2023.csv`
 }
 ```
 
-Also cite the data source:
-- Japan Meteorological Agency, Unified Hypocenter Catalog
-- Ogata, Y. (1988). Statistical models for earthquake occurrences. *JASA*, 83(401), 9-27.
-- Gardner, J.K. & Knopoff, L. (1974). Is the sequence of earthquakes in Southern California, with aftershocks removed, Poissonian? *BSSA*, 64(5), 1363-1367.
-
----
-
-## Related Documentation
-
-- `METHODS.md` — Detailed methodology and implementation notes
-- `CONTRIBUTING.md` — Contribution guidelines
-- `LICENSE` — MIT License
-- GitHub Issues — Planned improvements and future work
-
----
-
-## Research Context
-
-This repository provides a reproducible benchmark for ETAS-based earthquake forecasting using publicly available seismic catalogs.
-
-The project focuses on transparent methodology, reproducible validation, and comparative evaluation of forecasting approaches. Future work includes temporal backtesting, neural forecasting baselines, and multi-region benchmarking.
-
-This work also serves as preparatory research for prospective graduate studies in statistical seismology and earthquake forecasting.
+Also cite the JMA Unified Hypocenter Catalog, Ogata (1988), and Gardner & Knopoff (1974); see [`CITATION.bib`](CITATION.bib).
