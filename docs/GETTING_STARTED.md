@@ -178,3 +178,27 @@ Before comparing two runs, record:
 - the rolling-audit command/options and `rolling_backtest_summary.json`.
 
 A passing command is not enough evidence of scientific validity. For interpretation, read [`BENCHMARKS.md`](BENCHMARKS.md), [`RESEARCH.md`](RESEARCH.md), and [`../METHODS.md`](../METHODS.md), especially the limitations around completeness, declustering, calibration, and the fact that rolling ETAS refitting is still pending.
+
+
+## 8. Train and evaluate ASTR
+
+After preprocessing, run the chronological model experiment:
+
+```bash
+python3 src/09_train_adaptive_model.py
+```
+
+The command tunes ASTR only on 2018–2021 validation origins, freezes the selected configuration, and evaluates 243 untouched 2022–2023 origins. It compares ASTR with uniform and historical-rate models using the same 72-hour windows and 60×60 grid.
+
+ASTR outputs:
+
+```text
+data/outputs/adaptive_model_config.json
+data/outputs/adaptive_model_tuning.csv
+data/outputs/adaptive_backtest_windows.csv
+data/outputs/adaptive_backtest_summary.json
+data/outputs/adaptive_backtest_reliability.json
+figures/adaptive_backtest.png
+```
+
+The leading space in the displayed `adaptive_model_tuning.csv` line is only formatting; the actual path has no leading space. Read [`MODEL.md`](MODEL.md) before interpreting the selected parameters or claiming that ASTR beats a benchmark. It improves on the historical-rate baseline in the checked-in test but does not beat the uniform-rate baseline on total likelihood.

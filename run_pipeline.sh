@@ -79,13 +79,23 @@ echo "          figures/validation_forecast_vs_observed.png"
 python3 src/06_validate.py
 
 echo ""
-echo "Step 10/10: Run the training-only rolling baseline audit"
+echo "Step 10/11: Run the training-only rolling baseline audit"
 echo "  Input:  data/processed/catalog_mc_filtered.csv"
 echo "  Output: data/outputs/rolling_backtest_windows.csv"
 echo "          data/outputs/rolling_backtest_summary.json"
 echo "          data/outputs/rolling_backtest_reliability.json"
 echo "          figures/rolling_backtest.png"
 python3 src/08_rolling_backtest.py
+
+echo ""
+echo "Step 11/11: Train ASTR and evaluate the untouched 2022-2023 test block"
+echo "  Input:  data/processed/catalog_mc_filtered.csv"
+echo "  Output: data/outputs/adaptive_model_config.json"
+echo "          data/outputs/adaptive_model_tuning.csv"
+echo "          data/outputs/adaptive_backtest_windows.csv"
+echo "          data/outputs/adaptive_backtest_summary.json"
+echo "          figures/adaptive_backtest.png"
+python3 src/09_train_adaptive_model.py
 
 echo ""
 echo "============================================"

@@ -1,0 +1,34 @@
+{
+  "model": "Adaptive Spatiotemporal Rate",
+  "abbreviation": "ASTR",
+  "description": "Long-term smoothed spatial rate plus recency-weighted, magnitude-weighted activity and spatial adaptation.",
+  "operational_context": "ETAS-inspired research model; not a reproduction of USGS OAF or UCERF3-ETAS.",
+  "selected_parameters": {
+    "recent_window_days": 90.0,
+    "recent_tau_days": 14.0,
+    "magnitude_gain": 0.0,
+    "spatial_mix": 0.25,
+    "rate_mix": 0.75,
+    "long_sigma_deg": 0.4,
+    "recent_sigma_deg": 0.2,
+    "mc": 0.8
+  },
+  "validation_origins": 487,
+  "tuning_origins": 122,
+  "test_origins": 243,
+  "validation_end": "2021-12-31 23:59:59",
+  "test_start": "2022-01-01 00:00:00",
+  "training_rule": "datetime <= origin",
+  "scoring_rule": "origin < datetime <= origin + 72 hours",
+  "grid_rows": 60,
+  "grid_columns": 60,
+  "window_days": 3.0,
+  "comparison": {
+    "beats_historical_total_log_likelihood": true,
+    "beats_historical_mean_information_gain": true,
+    "beats_uniform_total_log_likelihood": false,
+    "test_log_likelihood_delta_vs_historical": 23.01111551154645,
+    "test_log_likelihood_delta_vs_uniform": -33.18282499185989,
+    "test_mean_auc_delta_vs_historical": 0.028373371017385463
+  }
+}

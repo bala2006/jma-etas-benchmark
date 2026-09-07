@@ -107,3 +107,40 @@ The research design follows the principles summarized in [`docs/RESEARCH.md`](do
 - **Calibration leakage in legacy example:** the checked-in calibrated ETAS map uses the full catalog rate and is retained as an illustrative comparison, not a prospective result.
 - **Grid implementations:** the legacy 61×61 visualization path and the new 60×60 cell audit have different contracts; each artifact's metadata and method documentation must be followed.
 - **ETAS convergence:** the CRAN ETAS package may require many iterations (300+) for full convergence, especially with a small mainshock catalog.
+
+
+## Adaptive Spatiotemporal Rate model
+
+The project also trains an interpretable challenger model, ASTR, on chronological validation origins. It is not full branching ETAS; it is designed to test whether recent activity adds useful information beyond a long-term spatial rate.
+
+For each origin, the model constructs:
+
+1. a long-term spatial distribution from all training events smoothed with a 0.4° Gaussian kernel;
+2. a recent spatial distribution from events in a learned recent window, weighted by exponential time decay;
+3. a normalized activity ratio comparing recent weighted activity with the expected training-rate activity;
+4. a blended spatial field and rate multiplier.
+
+The expected grid count is:
+
+```text
+expected = base_training_rate
+           × rate_multiplier
+           × ((1 - spatial_mix) × long_term_field
+              + spatial_mix × recent_field)
+```
+
+Five hyperparameters are selected from a predeclared grid using only 2018–2021 validation origins: recent window, time-decay scale, magnitude gain, spatial mixture, and rate mixture. The selected configuration is then frozen and evaluated on 243 untouched origins from 2022–2023.
+
+The ASTR implementation is in `src/adaptive_spatiotemporal.py`; the experiment driver is `src/09_train_adaptive_model.py`; the full architecture is documented in `docs/MODEL.md`.
+
+## Current ASTR result
+
+On the untouched 2022–2023 test block:
+
+| Model | Total log likelihood | Mean AUC | Aggregate N-test |
+|---|---:|---:|:---:|
+| Uniform rate | -5,352.62 | 0.500 | FAIL |
+| Historical rate | -5,408.81 | 0.498 | FAIL |
+| ASTR | **-5,385.80** | **0.527** | **PASS** |
+
+ASTR improves over the historical-rate baseline, but not over uniform rate on total likelihood. This is a partial benchmark improvement, not a claim of a best or operational model.

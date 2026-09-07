@@ -98,3 +98,46 @@ The current repository now has the baseline schedule, output schema, and reporti
 - [JMA Unified Hypocenter Catalog](https://www.data.jma.go.jp/svd/eqev/data/bulletin/hypo_e.html) — project data source.
 
 Content was rephrased for compliance with licensing restrictions.
+
+
+## Trainable model added after the baseline audit
+
+The next experiment is implemented in `src/09_train_adaptive_model.py` and `src/adaptive_spatiotemporal.py`. It is called **Adaptive Spatiotemporal Rate (ASTR)**.
+
+ASTR was chosen because it is:
+
+- causal at every origin;
+- interpretable without a black-box machine-learning dependency;
+- computationally reproducible with the repository's Python requirements;
+- directly comparable on the same spatial cells and Poisson scoring rules;
+- capable of incorporating short-term activity without mislabeling itself as full ETAS.
+
+The training protocol freezes the final test block before tuning:
+
+| Stage | Origins | Purpose |
+|---|---:|---|
+| Validation | 487 from 2018–2021 | Select ASTR hyperparameters |
+| Tuning subset | 122 validation origins | Reduce repeated computation while preserving chronological coverage |
+| Final test | 243 from 2022–2023 | Untouched comparison |
+
+Every model receives only events with `datetime <= origin`. Future observations are used only for scoring. The final test uses identical 72-hour windows and a 60×60 cell grid for the uniform, historical-rate, and ASTR models.
+
+## ASTR result
+
+| Model | Test total log likelihood | Mean AUC | Aggregate N-test |
+|---|---:|---:|:---:|
+| Uniform rate | -5,352.62 | 0.500 | FAIL |
+| Historical rate | -5,408.81 | 0.498 | FAIL |
+| ASTR | **-5,385.80** | **0.527** | **PASS** |
+
+ASTR improves on historical rate by 23.01 total log-likelihood units and 0.028 mean AUC points on the untouched test block. It does not beat the uniform-rate baseline on total likelihood. Therefore the result supports a **partial, local improvement**, not a state-of-the-art or operational claim.
+
+The model's selected parameters include a 90-day recent window, 14-day decay time, 0.25 spatial mixture, and 0.75 activity-rate mixture. Its selected magnitude gain is 0.0; validation did not support adding magnitude weighting under this protocol. That parameter must remain frozen for the final test rather than being changed after seeing the result.
+
+## Real-world benchmark boundary
+
+The [USGS Aftershock Forecast Overview](https://earthquake.usgs.gov/data/oaf/overview.php) describes a continuously updated aftershock forecasting process that incorporates the behavior of the specific sequence as it develops. The [USGS scientific background](https://earthquake.usgs.gov/data/oaf/background.php) describes the ETAS-related productivity and temporal-decay parameters used in aftershock forecasting. These sources establish the relevant operational model family.
+
+This repository does not claim to beat USGS OAF or UCERF3-ETAS directly. A valid comparison would require the same catalog, region, target magnitude range, forecast horizon, forecast grid, data cutoffs, and prospective evaluation. The current result is a fair comparison against local reproducible baselines, while the next research step is an origin-safe rolling ETAS refit.
+
+Content was rephrased for compliance with licensing restrictions.

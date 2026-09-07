@@ -51,6 +51,15 @@ flowchart TD
         G --> I --> J --> K --> L
     end
 
+    subgraph ADAPTIVE[Trainable model experiment]
+        AA[09_train_adaptive_model.py\nvalidation-only tuning]
+        AB[src/adaptive_spatiotemporal.py\nASTR model]
+        AC[data/outputs/adaptive_model_config.json\nadaptive_model_tuning.csv]
+        AD[data/outputs/adaptive_backtest_*.csv/json]
+        E --> AA --> AB --> AC
+        AB --> AD
+    end
+
     subgraph COMPARISON[Calibration and baseline]
         M[calibrate_etas.py\nrate matching]
         N[data/outputs/etas_calibrated_prob_72h.npy\ncalibrated metadata]
@@ -91,6 +100,7 @@ Each stage has a simple contract: read a named artifact, perform one scientifica
 | Baseline | Filtered catalog | Smoothed spatial histogram | Baseline grid + metadata | Catalog has no usable time span |
 | Example validation | Forecast grids + metadata + catalog | Count events, score forecasts, plot diagnostics | Metrics and PNGs | Forecasts have incompatible geometry/time |
 | Rolling audit | Filtered catalog | Training-only, non-overlapping origins; 60×60 cells with 61×61 edges | Per-window CSV, aggregate JSON, reliability JSON, PNG | Invalid origins, insufficient training history, or overlapping configuration |
+| ASTR experiment | Filtered catalog | Validation-only hyperparameter selection, frozen test evaluation | Model config, tuning CSV, held-out scores, reliability JSON, PNG | Future-data leakage, invalid origin split, or insufficient catalog |
 
 ## Why Python and R are both present
 
@@ -166,7 +176,29 @@ The default schedule has 730 non-overlapping origins spaced three days apart fro
 
 This is a reliable baseline audit, not a claim that ETAS has been tested prospectively. The next ETAS milestone is to pass each origin as a precise training cutoff to the R fit, refit parameters using only prior data, and then score the resulting forecast with the same contract.
 
-## Research-to-implementation trace
+## ASTR model contract
+
+`src/09_train_adaptive_model.py` tunes the Adaptive Spatiotemporal Rate model on 2018–2021 validation origins and freezes the selected configuration before evaluating 2022–2023. `src/adaptive_spatiotemporal.py` contains the model math and shared 60×60 cell contract.
+
+ASTR combines three causal signals:
+
+1. long-term spatial density from all training events;
+2. a recent spatial density field with exponential time decay;
+3. a normalized magnitude-weighted activity multiplier.
+
+The model is intentionally transparent and lightweight. It is a research challenger to the local historical-rate baseline, not a direct replacement for USGS OAF or UCERF3-ETAS. The model's training outputs include the complete candidate ranking so another researcher can inspect whether the selected configuration was genuinely chosen from validation data.
+
+The checked-in held-out test result is:
+
+| Model | Total test log likelihood | Mean AUC | Aggregate N-test |
+|---|---:|---:|:---:|
+| Uniform rate | -5,352.62 | 0.500 | FAIL |
+| Historical rate | -5,408.81 | 0.498 | FAIL |
+| ASTR | **-5,385.80** | **0.527** | **PASS** |
+
+ASTR improves on historical rate but does not beat uniform rate on total likelihood. This is a measured partial improvement, not a claim of state-of-the-art performance.
+
+
 
 The design follows the external research summary in [`RESEARCH.md`](RESEARCH.md): controlled forecast origins, a strict train/test boundary, a fixed forecast definition, machine-readable forecast artifacts, transparent reference models, and aggregate results across many windows. The implementation deliberately records what it does not yet provide so users cannot mistake the baseline audit for an operational system.
 

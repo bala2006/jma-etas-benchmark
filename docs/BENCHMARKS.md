@@ -121,6 +121,38 @@ The spatial baseline's average AUC is only slightly above random, its fifth-perc
 
 This output is intentionally **not** labeled a rolling ETAS result. The script does not refit R ETAS parameters at each origin, so it cannot establish prospective ETAS skill. See [`RESEARCH.md`](RESEARCH.md) for the design rationale and the next ETAS milestone.
 
+## ASTR held-out experiment
+
+The repository now includes a trainable **Adaptive Spatiotemporal Rate (ASTR)** model. It is an interpretable ETAS-inspired model that combines a long-term spatial field, an exponentially decayed recent-event field, and a magnitude-weighted activity multiplier. It does not implement full branching ETAS.
+
+The experiment is chronological:
+
+- 487 validation origins from 2018–2021;
+- 122 tuning origins used to select five hyperparameters;
+- configuration frozen after validation;
+- 243 untouched test origins from 2022-01-01 through 2023-12-28;
+- same 72-hour windows, 60×60 cells, and scoring implementation for every model.
+
+| Model | Test origins | Expected events | Observed events | Aggregate N-test | Total log likelihood | Mean log likelihood | Mean AUC | Mean IG/event |
+|---|---:|---:|---:|:---:|---:|---:|---:|---:|
+| Uniform rate | 243 | 814.49 | 650 | **FAIL** | -5,352.62 | -22.027 | 0.500 | ~0.0000 |
+| Historical rate | 243 | 814.49 | 650 | **FAIL** | -5,408.81 | -22.258 | 0.498 | -0.0634 |
+| **ASTR** | 243 | 691.08 | 650 | **PASS** | **-5,385.80** | **-22.164** | **0.527** | **-0.0602** |
+
+ASTR improves total test log likelihood over the historical-rate baseline by **23.01**, improves mean AUC by **0.028**, and passes the aggregate N-test. It does **not** beat the uniform-rate baseline on total log likelihood, so the correct conclusion is a partial improvement over one meaningful baseline—not a claim that ASTR is the best available earthquake forecasting model.
+
+![ASTR held-out comparison](../figures/adaptive_backtest.png)
+
+The full artifacts are:
+
+- [`../data/outputs/adaptive_model_config.json`](../data/outputs/adaptive_model_config.json)
+- [`../data/outputs/adaptive_model_tuning.csv`](../data/outputs/adaptive_model_tuning.csv)
+- [`../data/outputs/adaptive_backtest_windows.csv`](../data/outputs/adaptive_backtest_windows.csv)
+- [`../data/outputs/adaptive_backtest_summary.json`](../data/outputs/adaptive_backtest_summary.json)
+- [`../data/outputs/adaptive_backtest_reliability.json`](../data/outputs/adaptive_backtest_reliability.json)
+
+The model architecture and training protocol are documented in [`MODEL.md`](MODEL.md). A direct comparison with USGS OAF or UCERF3-ETAS is not claimed because those systems use different catalogs, regions, target magnitudes, and forecast protocols. The next benchmark is an origin-safe rolling R ETAS refit on this same JMA experiment.
+
 ## What the calibration does
 
 `src/calibrate_etas.py` uses the long-term filtered catalog rate to scale the raw forecast:
@@ -150,18 +182,20 @@ This is useful for exposing the effect of rate mismatch and making a controlled 
 ### Supported conclusions
 
 - The simple historical-rate baseline has been evaluated over 730 training-only, non-overlapping windows.
-- Long-term spatial smoothing alone has only modest average ranking skill and negative mean information gain versus the uniform reference in this snapshot.
-- Both simple baselines underpredict the aggregate event count, so total-rate behavior also needs improvement.
+- ASTR improves on the historical-rate baseline on the untouched 2022–2023 test by total likelihood and mean AUC.
+- ASTR does not beat the uniform-rate baseline on total test likelihood, so its advantage is not universal.
+- ASTR passes the aggregate N-test while both simple baselines fail on the final test block.
+- Long-term spatial smoothing alone has only modest average ranking skill and negative mean information gain versus the uniform reference.
 - The raw ETAS output is severely overdispersed in the original single-window demonstration.
-- Rate matching changes the single-window total-count behavior and makes that example N-test pass.
-- ETAS should not be considered useful unless a true rolling ETAS evaluation improves on these baselines.
+- A true rolling ETAS evaluation is still required before claiming performance against an operational ETAS family model.
 
 ### Unsupported conclusions
 
-- That ETAS can reliably predict a specific earthquake.
+- That ASTR beats USGS OAF, UCERF3-ETAS, or any operational model; those have not been evaluated on this same experiment.
+- That ASTR's held-out result guarantees future performance.
 - That the calibrated model is operationally calibrated.
 - That the rolling baseline audit establishes ETAS performance; ETAS was not refit at each origin.
-- That an AUC near 0.5 proves ETAS has no value in general.
+- That an AUC near 0.5 proves ETAS or ASTR has no value in general.
 - That the single-window result is a statistically adequate benchmark.
 - That the rolling result generalizes to another catalog, region, or magnitude threshold.
 - That the maps should be used for evacuation, public warning, or emergency response.

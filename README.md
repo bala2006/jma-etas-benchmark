@@ -19,6 +19,7 @@ This repository turns a JMA earthquake catalog into a spatial probability map, c
 | See how data and scripts connect | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Interpret the existing charts and scores | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) |
 | Read the research basis and new findings | [`docs/RESEARCH.md`](docs/RESEARCH.md) |
+| Understand and reproduce the trained ASTR model | [`docs/MODEL.md`](docs/MODEL.md) |
 | Review the mathematical and scientific details | [`METHODS.md`](METHODS.md) |
 
 ## What problem does it solve?
@@ -31,6 +32,7 @@ It compares two useful perspectives:
 
 - **ETAS:** models background seismicity plus short-term triggering from previous events.
 - **Historical-rate baseline:** smooths the long-term spatial event density without modeling triggering.
+- **ASTR:** a trainable, interpretable adaptive model that combines long-term spatial density with recent activity. It is ETAS-inspired, but not a replacement for full ETAS.
 
 The forecast is a probability surface, not a deterministic prediction of the next earthquake. The checked-in ETAS comparison is a single-window demonstration; the new rolling audit measures only training-safe simple baselines until a full origin-by-origin ETAS refit is implemented.
 
@@ -47,6 +49,7 @@ The forecast is a probability surface, not a deterministic prediction of the nex
 | ETAS fit | R `ETAS` package; Python evaluates the exported parameters on the grid |
 | Validation | Poisson log-likelihood, N-test, information gain, ROC/AUC, reliability diagram |
 | Rolling audit | 730 non-overlapping 72-hour origins from 2018-01-01 to 2023-12-28; training-only historical and uniform baselines |
+| ASTR experiment | 487 validation origins for tuning; 243 untouched 2022–2023 test origins |
 | Checked-in validation window | 2023-12-28 03:13:21 to 2023-12-31 03:13:21 UTC-like catalog timestamps |
 | Observations in that window | 5 events at or above Mc |
 
@@ -66,12 +69,15 @@ flowchart LR
     J --> K[Baseline probabilities]
     C --> R[08 Rolling baseline audit]
     R --> S[Multi-window baseline results]
+    C --> T[09 Train ASTR]
+    T --> U[ASTR held-out test]
     I --> L[05 Visualize]
     G --> M[06 Validate example]
     I --> M
     K --> M
     M --> N[Single-window metrics and plots]
     S --> N
+    U --> N
 ```
 
 For a larger data-lineage diagram, artifact contract, and explanation of the Python/R boundary, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -90,8 +96,9 @@ For a larger data-lineage diagram, artifact contract, and explanation of the Pyt
 | 8 | `src/05_visualize.py` | Draws the ETAS forecast and observed events | `figures/forecast_map_72h.png` |
 | 9 | `src/06_validate.py` | Scores the example forecasts against observations | single-window metrics and diagnostic graphs |
 | 10 | `src/08_rolling_backtest.py` | Scores training-only baselines over non-overlapping origins | rolling CSV/JSON results and audit graph |
+| 11 | `src/09_train_adaptive_model.py` | Tunes ASTR on 2018–2021 and evaluates untouched 2022–2023 origins | model config, held-out scores, and comparison graph |
 
-Run all ten stages in order with `bash run_pipeline.sh`. The scripts fail early when a required input is missing; the raw catalog is intentionally not committed to this repository.
+Run all eleven stages in order with `bash run_pipeline.sh`. The scripts fail early when a required input is missing; the raw catalog is intentionally not committed to this repository.
 
 ## Benchmark snapshot
 
@@ -115,6 +122,24 @@ The multi-window result shows that the smoothed spatial baseline had only a smal
 ![Rolling-origin baseline audit](figures/rolling_backtest.png)
 
 The calibration fixes the total-rate mismatch in the single-window example, but it does **not** create spatial skill. A reliable ETAS research claim requires rolling-window refits with training-only data; that remains the next implementation stage.
+
+## ASTR held-out model experiment
+
+`src/09_train_adaptive_model.py` trains the **Adaptive Spatiotemporal Rate (ASTR)** model using only 2018–2021 validation origins, freezes its configuration, and evaluates 2022–2023 as an untouched test. It compares all models on the same 243 test origins and the same 60×60 grid contract.
+
+| Model | Test origins | Expected events | Observed events | Aggregate N-test | Mean log likelihood | Mean AUC | Mean IG/event |
+|---|---:|---:|---:|:---:|---:|---:|---:|
+| Uniform rate | 243 | 814.49 | 650 | **FAIL** | -22.027 | 0.500 | ~0.0000 |
+| Historical rate | 243 | 814.49 | 650 | **FAIL** | -22.258 | 0.498 | -0.0634 |
+| **ASTR** | 243 | 691.08 | 650 | **PASS** | **-22.164** | **0.527** | **-0.0602** |
+
+ASTR beats the repository's historical-rate baseline on held-out total log likelihood by **23.01** and improves mean AUC by **0.028**. It also passes the aggregate N-test. It does **not** beat the uniform-rate baseline on total log likelihood, so the result is a partial improvement—not proof that ASTR is the best earthquake model.
+
+![ASTR held-out comparison](figures/adaptive_backtest.png)
+
+The selected configuration and full tuning table are stored in `data/outputs/adaptive_model_config.json` and `data/outputs/adaptive_model_tuning.csv`. The complete per-window result is in `data/outputs/adaptive_backtest_windows.csv`.
+
+ASTR is not a direct comparison against USGS OAF or UCERF3-ETAS. Those operational ETAS systems use different catalogs, regions, target magnitudes, and evaluation protocols. A fair direct comparison requires an origin-safe rolling ETAS refit on the same JMA experiment.
 
 ### Visual results
 
@@ -174,6 +199,10 @@ The expected input columns and individual-step commands are documented in [`docs
 | `data/raw/` | User-provided JMA CSV; ignored by Git | Source data stays separate from derived artifacts |
 | `data/processed/` | Cleaned, Mc-filtered, and declustered catalogs | Auditable inputs to fitting and evaluation |
 | `data/outputs/` | Parameters, NumPy grids, metadata, and metrics | Machine-readable results and provenance |
+| `data/outputs/rolling_backtest_*` | Rolling baseline results | Training-only baseline research results |
+| `data/outputs/adaptive_model_config.json` | Frozen ASTR parameters and protocol | Reproducible trained model |
+| `data/outputs/adaptive_model_tuning.csv` | Validation-only candidate scores | Hyperparameter selection audit |
+| `data/outputs/adaptive_backtest_*` | ASTR per-window, summary, and reliability results | Held-out model evaluation |
 | `figures/` | PNG graphs generated by the pipeline | Human-readable diagnostics and communication |
 | `src/` | Python preprocessing, forecasting, validation, visualization | Main executable workflow |
 | `etas/` | R ETAS fit and optional compatibility wrapper | Model fitting boundary |
@@ -185,11 +214,11 @@ Forecast grids are NumPy arrays; use the accompanying `*_metadata.json` file for
 
 This project is useful for learning, reproducibility, and controlled model comparison. It is not yet an operational forecasting service. Current limitations include:
 
-1. The ETAS comparison remains a single 72-hour window with only five observed events; the new rolling result currently covers simple baselines only.
+1. The legacy ETAS comparison remains a single 72-hour window with only five observed events; ASTR has a held-out 2022–2023 test but is not a full rolling ETAS refit.
 2. The Mc estimate is global for the region, although detection completeness can vary with location and time.
 3. Gardner–Knopoff is a simple deterministic declustering method; it does not quantify parentage uncertainty.
-4. The Python grid evaluator is a stable, documented fallback rather than a version-independent replacement for every R `ETAS` prediction API.
-5. Calibration matches a historical total rate after fitting; it is not a substitute for prospective calibration or rolling-origin ETAS training.
+4. ASTR is ETAS-inspired and interpretable, but it does not explicitly estimate branching or parent-child triggering.
+5. The calibrated legacy ETAS result uses full-catalog rate information and is not prospective.
 6. The project does not provide uncertainty intervals, real-time ingestion, alert thresholds, or emergency decision support.
 
 See [`METHODS.md`](METHODS.md) for equations and assumptions, [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the evidence currently available, and the [JMA catalog documentation](https://www.data.jma.go.jp/svd/eqev/data/bulletin/hypo_e.html) for data provenance.
@@ -202,11 +231,14 @@ jma-etas-benchmark/
 ├── docs/
 │   ├── GETTING_STARTED.md            # Run guide and input/output contract
 │   ├── ARCHITECTURE.md               # Visual system and data-flow guide
-│   ├── BENCHMARKS.md                 # Single-window and rolling results
+│   ├── BENCHMARKS.md                 # Single-window, rolling, and ASTR results
+│   ├── MODEL.md                      # ASTR architecture and training protocol
 │   └── RESEARCH.md                   # External research and design decisions
 ├── METHODS.md                        # Detailed methodology and limitations
-├── run_pipeline.sh                   # Ten-step orchestration script
-├── src/                              # Python processing, forecasts, plots, validation
+├── run_pipeline.sh                   # Eleven-step orchestration script
+├── src/                              # Python preprocessing, forecasts, plots, validation
+│   ├── adaptive_spatiotemporal.py    # ASTR model implementation
+│   └── 09_train_adaptive_model.py    # Chronological training/test experiment
 ├── etas/                             # R ETAS fitting scripts
 ├── scripts/                          # Catalog preparation utilities
 ├── data/
@@ -219,6 +251,7 @@ jma-etas-benchmark/
 ## Roadmap
 
 - Rolling baseline audit with explicit training-only origins **(implemented)**
+- ASTR adaptive model with untouched 2022–2023 test **(implemented)**
 - Rolling ETAS refits with precise origin cutoffs **(next reliability milestone)**
 - Better spatial/temporal completeness analysis
 - Additional baselines and prospective calibration
