@@ -84,11 +84,63 @@ Plots predicted probability against observed frequency. Points near the diagonal
 
 ## Simple baseline
 
-A Gaussian kernel density estimate of historical earthquake locations (sigma = 0.4 degrees) provides a simple benchmark that has no temporal triggering component. This always passes the N-test by construction and serves as a reference for evaluating whether the ETAS model adds predictive skill.
+The historical-rate baseline uses a Gaussian-smoothed histogram of earthquake locations with sigma = 0.4 degrees. It has no short-term triggering component and is a reference model, not a claim of operational reliability. The rolling audit also compares it with a uniform-rate model to separate spatial ranking from total-rate behavior.
 
-## Limitations
+## Rolling-origin baseline audit
+
+`src/08_rolling_backtest.py` evaluates two transparent reference models without using the R ETAS fit:
+
+- **Historical rate:** Gaussian-smoothed spatial counts from events with `datetime <= origin`, divided by the training span and projected over the 72-hour horizon.
+- **Uniform rate:** the same training-only total event rate distributed evenly across all forecast cells.
+
+Origins are deterministic, spaced every three days, and the default horizon is three days, so windows do not overlap. Observations are selected strictly after the origin and at or before the forecast end. The forecast grid has 60×60 cell values and 61×61 coordinate edges. Per-window rows are retained so aggregate scores do not hide unstable windows. The report includes Poisson likelihood, information gain relative to the per-window uniform rate, N-test intervals, ROC AUC, Brier score, and pooled reliability bins.
+
+This audit is a baseline reference, not a rolling ETAS evaluation. A true ETAS backtest must refit parameters at every origin using only prior data and use an origin-safe calibration rule.
+
+## External research basis
+
+The research design follows the principles summarized in [`docs/RESEARCH.md`](docs/RESEARCH.md): controlled and reproducible testing from [CSEP](https://cseptesting.org/), standardized forecast evaluation and data models from [pyCSEP](https://doi.org/10.21105/joss.03658), prospective benchmark practice from the [California forecast database](https://www.nature.com/articles/s41597-025-05766-3), and ETAS completeness findings from [Mizrahi et al.](https://arxiv.org/html/2105.00888v3).
 
 - **Single regional Mc:** one Mc value is estimated for the whole offshore Tohoku/Kanto region, although completeness may vary in space and time.
 - **First-order declustering:** Gardner-Knopoff windows are simple and reproducible, but they do not estimate uncertainty and can misclassify events.
-- **One forecast window:** the current validation uses a single 72-hour window. A rigorous evaluation requires rolling window backtesting over many years.
+- **Rolling ETAS not yet implemented:** the new multi-window audit evaluates simple baselines only; the ETAS parameters are not refit at each origin.
+- **Calibration leakage in legacy example:** the checked-in calibrated ETAS map uses the full catalog rate and is retained as an illustrative comparison, not a prospective result.
+- **Grid implementations:** the legacy 61×61 visualization path and the new 60×60 cell audit have different contracts; each artifact's metadata and method documentation must be followed.
 - **ETAS convergence:** the CRAN ETAS package may require many iterations (300+) for full convergence, especially with a small mainshock catalog.
+
+
+## Adaptive Spatiotemporal Rate model
+
+The project also trains an interpretable challenger model, ASTR, on chronological validation origins. It is not full branching ETAS; it is designed to test whether recent activity adds useful information beyond a long-term spatial rate.
+
+For each origin, the model constructs:
+
+1. a long-term spatial distribution from all training events smoothed with a 0.4° Gaussian kernel;
+2. a recent spatial distribution from events in a learned recent window, weighted by exponential time decay;
+3. a normalized activity ratio comparing recent weighted activity with the expected training-rate activity;
+4. a blended spatial field and rate multiplier.
+
+The expected grid count is:
+
+```text
+expected = base_training_rate
+           × rate_multiplier
+           × ((1 - spatial_mix) × long_term_field
+              + spatial_mix × recent_field)
+```
+
+Five hyperparameters are selected from a predeclared grid using only 2018–2021 validation origins: recent window, time-decay scale, magnitude gain, spatial mixture, and rate mixture. The selected configuration is then frozen and evaluated on 243 untouched origins from 2022–2023.
+
+The ASTR implementation is in `src/adaptive_spatiotemporal.py`; the experiment driver is `src/09_train_adaptive_model.py`; the full architecture is documented in `docs/MODEL.md`.
+
+## Current ASTR result
+
+On the untouched 2022–2023 test block:
+
+| Model | Total log likelihood | Mean AUC | Aggregate N-test |
+|---|---:|---:|:---:|
+| Uniform rate | -5,352.62 | 0.500 | FAIL |
+| Historical rate | -5,408.81 | 0.498 | FAIL |
+| ASTR | **-5,385.80** | **0.527** | **PASS** |
+
+ASTR improves over the historical-rate baseline, but not over uniform rate on total likelihood. This is a partial benchmark improvement, not a claim of a best or operational model.
